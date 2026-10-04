@@ -30,7 +30,7 @@ psql -h localhost -U <пользователь> -d library -v ON_ERROR_STOP=1 -f
 Задайте переменные окружения `LIBRARY_DB_URL`, `LIBRARY_DB_USER`,
 `LIBRARY_DB_PASSWORD`. `LIBRARY_ZONE` задаёт часовой пояс дат выдачи и возврата;
 по умолчанию используется Europe/Moscow. Образец находится в `.env.example`;
-файл не загружается автоматически. Секреты не храните в репозитории.
+файл не загружается автоматически.
 
 ## Сборка
 
@@ -62,7 +62,7 @@ mvn -pl backend org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-depe
 java -cp "backend/target/classes;backend/target/dependency/*" ru.library.bootstrap.AdminBootstrap
 ```
 
-Программа запрашивает логин, ФИО и пароль без отображения пароля.
+Программа запрашивает логин, ФИО и пароль.
 Первичная настройка доступна только пока таблица users пуста.
 Все последующие учётные записи создаёт администратор через UserService.
 
@@ -70,23 +70,6 @@ java -cp "backend/target/classes;backend/target/dependency/*" ru.library.bootstr
 методы и права описаны в `docs/backend-api.md`.
 Схема и ограничения описаны в `docs/database.md`.
 
-Если нужно держать кэш сборки на диске E, выполняйте команды из корня проекта
-с дополнительными параметрами:
-
 ```text
 mvn "-Dmaven.repo.local=E:/biblioteka/.local/m2" "-Djava.io.tmpdir=E:/biblioteka/.local/tmp" verify
 ```
-
-Каталог .local не включается в Git.
-
-## Командная работа
-
-- `backend-db` — backend и база данных.
-- `frontend` — интерфейс второго участника.
-- `main` — проверенная объединённая версия.
-
-Коммиты и отправку изменений выполняют участники. В новом пустом репозитории
-ветки появляются на GitHub только после первой отправки коммитов.
-
-Порядок первоначальной публикации и подключения второго участника описан
-в `docs/team-work.md`.

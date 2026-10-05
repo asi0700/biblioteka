@@ -22,6 +22,11 @@ public final class BookService {
         String pattern = Validation.pattern(query);
         return database.transaction(c -> { auth.require(c, token, false); return books.search(c, pattern, limit, offset); });
     }
+    public List<CatalogEntry> catalog(SessionToken token, String query, int limit, int offset) {
+        Validation.page(limit, offset);
+        String pattern = Validation.pattern(query);
+        return database.transaction(c -> { auth.require(c, token, false); return books.catalog(c, pattern, limit, offset); });
+    }
     public Book get(SessionToken token, long id) {
         Validation.id(id);
         return database.transaction(c -> {

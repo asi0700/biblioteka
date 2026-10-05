@@ -4,7 +4,7 @@
 После входа храните `SessionToken` и передавайте его в методы сервисов.
 При перезапуске приложения требуется новый вход. Срок сеанса — 8 часов.
 
-```java
+```text
 Backend backend = Backend.fromEnvironment();
 AuthResult result = backend.auth().login(login, password);
 SessionToken token = result.token();
@@ -38,7 +38,7 @@ Repositories и настройки подключения относятся к 
 | Сервис | Основные методы | Права |
 | --- | --- | --- |
 | auth | login, currentUser, logout | Вход и управление своим сеансом |
-| books | search, get, copies, availableCopies | admin/user |
+| books | catalog, search, get, copies, availableCopies | admin/user |
 | books | create, update, archive, addCopy, setCopyCondition | admin |
 | readers | search, get, tickets | admin/user |
 | readers | create, update, setActive, issueTicket | admin |
@@ -55,6 +55,10 @@ Repositories и настройки подключения относятся к 
 Две роли фиксированы; администратор назначает их пользователям.
 Статусы выдач также фиксированы. Создание новых ролей и статусов не входит в MVP.
 Поиск каталога учитывает название, ISBN и имена авторов. Символы % и _ ищутся буквально.
+Для таблицы интерфейса используйте `books.catalog(token, query, limit, offset)`:
+`CatalogEntry` содержит `book`, строку `authors` и число доступных экземпляров `available`.
+Страница загружается в одной транзакции с проверкой сеанса, без дополнительных вызовов
+для каждой книги. Метод `search` сохранён для клиентов, которым нужны только книги.
 Методы поиска и истории принимают limit (1–200) и offset (от 0).
 Списки пользователей и справочников ограничены 500 записями в MVP.
 Читательские билеты действуют включительно по обеим датам; новый билет отключает прежний.

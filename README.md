@@ -1,16 +1,34 @@
 # Информационная система автоматизации библиотеки
 
 Учебный командный проект на Java 21 и PostgreSQL. Backend обеспечивает авторизацию,
-каталог, учёт читателей, выдачу и возврат книг. JavaFX-интерфейс разрабатывается отдельно.
+каталог, учёт читателей, выдачу и возврат книг. Frontend — настольный интерфейс JavaFX.
 
 ## Структура
 
 - `backend` — Maven-модуль: модели, JDBC repositories, сервисы и тесты.
+- `frontend` — JavaFX: вход, каталог, читатели, выдачи, штрафы и администрирование.
 - `database` — схема из 14 таблиц и начальные справочники.
 - `docs` — архитектура, подключение интерфейса и проверка проекта.
 
-Корневой `pom.xml` объединяет модули. Модуль интерфейса можно добавить позднее.
+Корневой `pom.xml` объединяет оба модуля.
 Frontend вызывает сервисы backend и не выполняет SQL.
+
+## Запуск из IDE
+
+1. Откройте корневой `pom.xml` как Maven-проект и выберите JDK 21.
+2. Создайте конфигурацию **Application**:
+   - Main class: `ru.library.frontend.Launcher`.
+   - Classpath/module: `library-frontend`.
+   - Working directory: корень проекта.
+3. В **Environment variables** укажите `LIBRARY_DB_URL`, `LIBRARY_DB_USER`,
+   `LIBRARY_DB_PASSWORD` и при необходимости `LIBRARY_ZONE`.
+   Для уже настроенной локальной базы перенесите значения из `.env`.
+   Java автоматически этот файл не читает.
+4. Убедитесь, что служба PostgreSQL запущена, и нажмите **Run**.
+
+Существующую базу повторно создавать или заполнять не нужно.
+Для нового компьютера настройте базу и первого администратора по инструкции ниже.
+PostgreSQL работает отдельной службой и не останавливается при закрытии приложения.
 
 ## База данных
 
@@ -29,8 +47,8 @@ psql -h localhost -U <пользователь> -d library -v ON_ERROR_STOP=1 -f
 
 Задайте переменные окружения `LIBRARY_DB_URL`, `LIBRARY_DB_USER`,
 `LIBRARY_DB_PASSWORD`. `LIBRARY_ZONE` задаёт часовой пояс дат выдачи и возврата;
-по умолчанию используется Europe/Moscow. Образец находится в `.env.example`;
-файл не загружается автоматически.
+по умолчанию используется Europe/Moscow. Параметры задаются в конфигурации запуска IDE.
+Локальный `.env` исключён из Git и служит для хранения настроек подключения.
 
 ## Сборка
 
@@ -69,6 +87,21 @@ java -cp "backend/target/classes;backend/target/dependency/*" ru.library.bootstr
 Для подключения интерфейса используйте `Backend.fromEnvironment()`;
 методы и права описаны в `docs/backend-api.md`.
 Схема и ограничения описаны в `docs/database.md`.
+
+## Запуск интерфейса
+
+После настройки PostgreSQL, переменных окружения и первого администратора:
+
+```text
+mvn install -DskipTests
+mvn -pl frontend javafx:run
+```
+
+Вход выполняется учётной записью сотрудника из backend.
+Для демонстрации можно загрузить `database/demo-data.sql` через SQL-консоль IDE
+или psql. Сценарий показа: [docs/demo.md](docs/demo.md).
+
+Описание экранов, ограничений API и проверок: [docs/frontend.md](docs/frontend.md).
 
 ```text
 mvn "-Dmaven.repo.local=E:/biblioteka/.local/m2" "-Djava.io.tmpdir=E:/biblioteka/.local/tmp" verify

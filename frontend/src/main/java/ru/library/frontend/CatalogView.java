@@ -3,6 +3,7 @@ package ru.library.frontend;
 import javafx.collections.FXCollections;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -32,6 +33,7 @@ final class CatalogView {
     final VBox root;
     final PagedTable<Row> list;
     private final AppContext c;
+    private boolean archived;
 
     CatalogView(AppContext c) {
         this.c = c;
@@ -50,7 +52,7 @@ final class CatalogView {
                                 c
                                         .backend
                                         .books()
-                                        .catalog(c.token, query, PagedTable.SIZE + 1, offset)
+                                        .catalog(c.token, query, archived, PagedTable.SIZE + 1, offset)
                                         .stream()
                                         .map(
                                                 entry ->
@@ -65,15 +67,18 @@ final class CatalogView {
                 400,
                 r -> r.book.title(),
                 r -> r.authors.isBlank() ? "Автор не указан" : r.authors);
-        Ui.column(list.table, "ISBN", 215, r -> r.book.isbn());
+        Ui.column(list.table, "ISBN — код издания", 215, r -> r.book.isbn());
         Ui.column(list.table, "Год", 85, r -> r.book.publicationYear());
         Ui.column(
                 list.table,
                 "Доступно",
                 155,
-                r -> r.available == 0 ? "Нет в наличии" : r.available + " экз.");
+                r -> r.book.archived() ? "В архиве" : r.available == 0 ? "Нет в наличии" : r.available + " экз.");
         list.table.getColumns().getLast().setMinWidth(145);
-        list.toolbar.getChildren().add(Ui.button("По номеру", "secondary", this::openByNumber));
+        list.toolbar.getChildren().add(Ui.button("По номеру / ISBN", "secondary", this::openByNumber));
+        CheckBox archive = new CheckBox("Архив книг");
+        archive.setOnAction(e -> { archived = archive.isSelected(); list.reset(); });
+        root.getChildren().add(Ui.row(archive, Ui.label("Архив скрывает книги из рабочего каталога, сохраняя историю.", "form-note")));
         Label selection =
                 Ui.selectionNote(
                         list.table, "Выберите книгу для действий", row -> row.book.title());
@@ -82,7 +87,7 @@ final class CatalogView {
                         "Выдать книгу",
                         "primary",
                         list.table,
-                        row -> row.available > 0,
+                        row -> row.available > 0 && !row.book.archived(),
                         r -> issue(c, r.book, list::refresh));
         list.actions
                 .getChildren()
@@ -98,17 +103,22 @@ final class CatalogView {
     }
 
     private void openByNumber() {
-        Ui.Form form = new Ui.Form(c, "Открыть книгу по номеру", "Открыть");
-        TextField number = form.text("Номер книги", "");
+        Ui.Form form = new Ui.Form(c, "Открыть книгу по номеру или ISBN", "Открыть");
+        ComboBox<String> kind = form.field("Что вводите", Ui.combo(List.of("Номер записи книги", "ISBN издания"), value -> value));
+        kind.setValue("Номер записи книги");
+        TextField number = form.text("Номер или ISBN", "");
         form.body
                 .getChildren()
                 .add(
                         Ui.label(
-                                "По номеру можно открыть и архивную книгу. Номер указан в карточке"
-                                        + " книги.",
+                                "Номер записи — короткий внутренний номер из карточки (например, 1). ISBN — международный код издания, обычно 13 цифр. Поиск доступен и для архивных книг.",
                                 "form-note"));
         form.load(
                 () -> {
+                    if ("ISBN издания".equals(kind.getValue())) {
+                        String isbn = Ui.required(number.getText().strip(), "ISBN");
+                        return () -> c.backend.books().findByIsbn(c.token, isbn);
+                    }
                     long id;
                     try {
                         id = Long.parseLong(number.getText().strip());
@@ -135,7 +145,7 @@ final class CatalogView {
         TableView<BookCopy> table = Ui.table();
         table.getItems().setAll(copies);
         table.setPrefHeight(270);
-        Ui.column(table, "Инвентарный номер", 290, BookCopy::inventoryNumber);
+        Ui.column(table, "Номер экземпляра в библиотеке", 290, BookCopy::inventoryNumber);
         Ui.column(table, "Состояние", 190, copy -> conditionName(copy.condition()));
         Label description = Ui.label(Ui.text(book.description()), "muted");
         description.setWrapText(true);
@@ -149,7 +159,9 @@ final class CatalogView {
                                         + (book.archived() ? " · В архиве" : " · В каталоге"),
                                 "muted"),
                         description,
-                        Ui.label("Экземпляры", "field-label"),
+                        Ui.label("ISBN: " + Ui.text(book.isbn()), "muted"),
+                        Ui.label("Экземпляры — физические копии книги. Например, DEMO-001-1: первая демонстрационная копия книги 001.", "form-note"),
+                        Ui.label("Физические экземпляры книги", "field-label"),
                         table);
         content.setPrefWidth(590);
         if (c.admin()) {
@@ -218,7 +230,8 @@ final class CatalogView {
 
     private void addCopy(Book book) {
         Ui.Form form = new Ui.Form(c, "Новый экземпляр", "Добавить");
-        TextField inventory = form.text("Инвентарный номер *", "");
+        TextField inventory = form.text("Номер физического экземпляра *", "ЭКЗ-" + book.id() + "-" + java.util.UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT));
+        form.body.getChildren().add(Ui.label("Уникальная отметка конкретной копии книги, которую библиотека наносит на экземпляр. Это не ISBN и не номер записи книги.", "form-note"));
         form.save(
                 () -> {
                     String number = Ui.required(inventory.getText().strip(), "Инвентарный номер");

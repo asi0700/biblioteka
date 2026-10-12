@@ -24,6 +24,17 @@ public final class Validation {
         if (value <= 0) throw new LibraryException(VALIDATION, "Идентификатор должен быть положительным.");
         return value;
     }
+    public static java.util.List<Long> ids(java.util.List<Long> values) {
+        return ids(values, "читателей");
+    }
+
+    public static java.util.List<Long> ids(java.util.List<Long> values, String field) {
+        required(values, "список " + field);
+        if (values.size() > 500)
+            throw new LibraryException(VALIDATION, "Можно выбрать не более 500 записей.");
+        for (Long value : values) id(required(value, field));
+        return values.stream().distinct().sorted().toList();
+    }
     public static void page(int limit, int offset) {
         if (limit < 1 || limit > 200 || offset < 0)
             throw new LibraryException(VALIDATION, "Размер страницы: 1–200, смещение неотрицательное.");

@@ -7,6 +7,7 @@ import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.scene.layout.FlowPane;
 
 import java.util.List;
 import java.util.function.BiFunction;
@@ -17,7 +18,7 @@ final class PagedTable<T> extends VBox {
     final TextField search = Ui.input("Поиск");
     final Label status = Ui.label("", "muted");
     final HBox toolbar;
-    final HBox actions = Ui.row();
+    final FlowPane actions = new FlowPane(12, 8);
     private final AppContext context;
     private final BiFunction<String, Integer, List<T>> fetch;
     private final Button previous, next;
@@ -84,14 +85,11 @@ final class PagedTable<T> extends VBox {
                     }
                     table.getItems().setAll(rows.subList(0, Math.min(SIZE, rows.size())));
                     status.setText(
-                            rows.isEmpty()
-                                    ? "Записей не найдено"
-                                    : "Показано "
-                                            + (offset + 1)
-                                            + "–"
-                                            + (offset + table.getItems().size()));
+                            "На странице: " + Ui.recordCount(table.getItems().size()));
                     previous.setDisable(offset == 0);
                     next.setDisable(rows.size() <= SIZE);
+                    previous.setTooltip(new javafx.scene.control.Tooltip(offset == 0 ? "Это первая страница" : "Предыдущая страница"));
+                    next.setTooltip(new javafx.scene.control.Tooltip(rows.size() <= SIZE ? "Все найденные записи уже показаны" : "Следующая страница"));
                 },
                 error -> {
                     previous.setDisable(offset == 0);

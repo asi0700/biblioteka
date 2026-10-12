@@ -9,6 +9,7 @@ import ru.library.security.Validation;
 import java.time.*;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.ArrayList;
 import static ru.library.exception.LibraryException.Code.*;
 
 public final class LoanService {
@@ -49,19 +50,33 @@ public final class LoanService {
     // Возврат и начисление штрафа либо сохраняются вместе, либо полностью отменяются.
     public Loan returnBook(SessionToken token, long loanId) {
         Validation.id(loanId);
+        return returnBooks(token, List.of(loanId)).getFirst();
+    }
+
+    public List<Loan> returnBooks(SessionToken token, List<Long> loanIds) {
+        List<Long> ids = Validation.ids(loanIds, "выдач");
+        if (ids.isEmpty()) throw new LibraryException(VALIDATION, "Выберите хотя бы одну выдачу.");
         return database.transaction(c -> {
             User employee = auth.require(c, token, false);
-            Loan snapshot = loans.find(c, loanId, false).orElseThrow(() -> new LibraryException(NOT_FOUND, "Выдача не найдена."));
-            readers.find(c, snapshot.readerId(), true).orElseThrow();
-            Loan loan = loans.find(c, loanId, true).orElseThrow();
-            books.copyById(c, loan.copyId(), true).orElseThrow();
-            if (loan.actualReturnDate() != null) throw new LibraryException(CONFLICT, "Книга уже возвращена.");
+            List<Loan> snapshots = new ArrayList<>();
+            for (long id : ids) snapshots.add(loans.find(c, id, false)
+                    .orElseThrow(() -> new LibraryException(NOT_FOUND, "Выдача не найдена.")));
+            for (long readerId : snapshots.stream().map(Loan::readerId).distinct().sorted().toList())
+                readers.find(c, readerId, true).orElseThrow();
             LocalDate today = LocalDate.now(clock);
-            if (today.isBefore(loan.issueDate())) throw new LibraryException(CONFLICT, "Дата возврата раньше даты выдачи.");
-            loans.returned(c, loanId, employee.id(), today);
-            BigDecimal amount = LoanPolicy.fine(loan.plannedReturnDate(), today, loan.dailyFineRate());
-            if (amount.signum() > 0) fines.create(c, loanId, amount);
-            return loans.find(c, loanId, false).orElseThrow();
+            List<Loan> returned = new ArrayList<>();
+            for (long id : ids) {
+                Loan loan = loans.find(c, id, true).orElseThrow();
+                books.copyById(c, loan.copyId(), true).orElseThrow();
+                if (loan.actualReturnDate() != null)
+                    throw new LibraryException(CONFLICT, "Среди выбранных книг есть уже возвращённая. Обновите список.");
+                if (today.isBefore(loan.issueDate())) throw new LibraryException(CONFLICT, "Дата возврата раньше даты выдачи.");
+                loans.returned(c, id, employee.id(), today);
+                BigDecimal amount = LoanPolicy.fine(loan.plannedReturnDate(), today, loan.dailyFineRate());
+                if (amount.signum() > 0) fines.create(c, id, amount);
+                returned.add(loans.find(c, id, false).orElseThrow());
+            }
+            return List.copyOf(returned);
         });
     }
     public List<Loan> history(SessionToken token, long readerId, int limit, int offset) {
@@ -77,5 +92,14 @@ public final class LoanService {
     }
     public List<LoanStatus> statuses(SessionToken token) {
         return database.transaction(c -> { auth.require(c, token, false); return loans.statuses(c); });
+    }
+    public List<LoanEntry> entries(SessionToken token, List<Long> readerIds, LoanFilter filter, int limit, int offset) {
+        List<Long> ids = Validation.ids(readerIds);
+        Validation.required(filter, "фильтр выдач");
+        Validation.page(limit, offset);
+        return database.transaction(c -> {
+            auth.require(c, token, false);
+            return loans.entries(c, ids, filter, LocalDate.now(clock), limit, offset);
+        });
     }
 }

@@ -28,6 +28,21 @@ public final class AuthService {
         dummyHash = passwords.hash(randomToken());
     }
 
+    public User register(String login, String password, String fullName) {
+        String normalized = Validation.login(login);
+        String name = Validation.text(fullName, 200, "ФИО");
+        String hash = passwords.hash(password);
+        return database.transaction(connection -> {
+            users.lockAdministration(connection);
+            if (users.activeAdmins(connection) == 0)
+                throw new LibraryException(CONFLICT, "Сначала настройте администратора библиотеки.");
+            if (users.byLogin(connection, normalized).isPresent())
+                throw new LibraryException(CONFLICT, "Этот логин уже занят. Выберите другой.");
+            long id = users.create(connection, normalized, hash, name, Role.USER);
+            return users.byId(connection, id, false).orElseThrow().user();
+        });
+    }
+
     public AuthResult login(String login, String password) {
         final String normalized;
         try { normalized = Validation.login(login); }

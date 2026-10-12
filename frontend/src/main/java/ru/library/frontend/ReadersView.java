@@ -39,15 +39,20 @@ final class ReadersView {
         Ui.column(list.table, "Телефон", 190, Reader::phone);
         Ui.column(list.table, "Email", 230, Reader::email);
         Ui.column(list.table, "Статус", 130, r -> r.active() ? "Активен" : "Отключён");
+        Ui.multiSelectable(list.table, Reader::id);
         list.actions
                 .getChildren()
                 .addAll(
                         Ui.selectionNote(
                                 list.table, "Выберите читателя для действий", Reader::fullName),
                         Ui.spacer(),
-                        Ui.selectedButton(
-                                "Выдачи", "secondary", list.table, r -> history(r, false)),
-                        Ui.selectedButton("Штрафы", "secondary", list.table, r -> history(r, true)),
+                        Ui.groupButton(
+                                "Выдачи выбранных", "secondary", list.table, r -> history(r, false)),
+                        Ui.groupButton("Штрафы выбранных", "secondary", list.table, r -> history(r, true)),
+                        Ui.button("Снять выбор", "secondary", () -> {
+                            Ui.clearChecked(list.table);
+                            list.table.refresh();
+                        }),
                         Ui.selectedButton(
                                 "Карточка читателя", "primary", list.table, this::details));
         root.getChildren().add(list);
@@ -94,8 +99,8 @@ final class ReadersView {
         table.getItems().setAll(tickets);
         Ui.readOnly(table);
         Ui.column(table, "Номер билета", 190, ReaderTicket::ticketNumber);
-        Ui.column(table, "С", 125, t -> Ui.date(t.validFrom()));
-        Ui.column(table, "По", 125, t -> Ui.date(t.validUntil()));
+        Ui.column(table, "Действует с", 155, t -> Ui.date(t.validFrom()));
+        Ui.column(table, "Действует до включительно", 200, t -> Ui.date(t.validUntil()));
         Ui.column(
                 table,
                 "Статус",
@@ -115,9 +120,10 @@ final class ReadersView {
                         Ui.label(
                                 Ui.text(reader.phone()) + "  ·  " + Ui.text(reader.email()),
                                 "muted"),
-                        Ui.label("Читательские билеты", "field-label"),
+                        Ui.label("Читательский билет — разрешение получать книги. Новый билет заменяет прежний; история сохраняется.", "form-note"),
+                        Ui.label("История читательских билетов", "field-label"),
                         table);
-        content.setPrefWidth(640);
+        content.setPrefWidth(760);
         if (c.admin())
             content.getChildren()
                     .addAll(
@@ -130,7 +136,7 @@ final class ReadersView {
                                                 edit(reader);
                                             }),
                                     Ui.button(
-                                            "Выдать билет",
+                                            "Оформить / продлить билет",
                                             "primary",
                                             () -> {
                                                 dialog.close();
@@ -164,13 +170,13 @@ final class ReadersView {
 
     private void ticket(Reader reader) {
         Ui.Form form = new Ui.Form(c, "Выдать читательский билет", "Выдать билет");
-        TextField number = form.text("Номер билета *", "");
+        TextField number = form.text("Номер нового билета *", "ЧБ-" + reader.id() + "-" + java.util.UUID.randomUUID().toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT));
         LocalDate today = Ui.today();
         DatePicker from = form.field("Действует с *", new DatePicker(today));
         from.setEditable(false);
         DatePicker until = form.field("Действует по *", new DatePicker(today.plusYears(1)));
         until.setEditable(false);
-        form.body.getChildren().add(Ui.label("Новый билет заменит предыдущий.", "form-note"));
+        form.body.getChildren().add(Ui.label("Используйте при первом оформлении, продлении или замене потерянного билета. Старый билет станет недействительным; новая выдача книг потребует действующего билета.", "form-note"));
         form.save(
                 () -> {
                     String value = Ui.required(number.getText().strip(), "Номер билета");
@@ -188,9 +194,9 @@ final class ReadersView {
         form.show();
     }
 
-    private void history(Reader reader, boolean fines) {
-        Dialog<Void> dialog = Ui.dialog(c, reader.fullName());
-        CirculationView view = new CirculationView(c, fines, reader);
+    private void history(List<Reader> readers, boolean fines) {
+        Dialog<Void> dialog = Ui.dialog(c, readers.size() == 1 ? readers.getFirst().fullName() : "Выбранные читатели: " + readers.size());
+        CirculationView view = new CirculationView(c, fines, readers);
         view.root.setPrefSize(880, 590);
         dialog.getDialogPane().setContent(view.root);
         dialog.show();

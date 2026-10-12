@@ -40,6 +40,24 @@ public final class LoanRepository {
         return Sql.list(connection, "SELECT * FROM loan_statuses ORDER BY id",
                 result -> new LoanStatus(result.getLong("id"), result.getString("code"), result.getString("name")));
     }
+    public List<ru.library.dto.LoanEntry> entries(Connection c, List<Long> readerIds, LoanFilter filter,
+                                                LocalDate today, int limit, int offset) throws SQLException {
+        Array ids = c.createArrayOf("bigint", readerIds.toArray());
+        try {
+            return Sql.list(c, """
+                    SELECT l.*, r.full_name, b.title, copy.inventory_number
+                    FROM loans l JOIN readers r ON r.id=l.reader_id
+                    JOIN book_copies copy ON copy.id=l.copy_id JOIN books b ON b.id=copy.book_id
+                    WHERE (cardinality(?::bigint[])=0 OR l.reader_id=ANY(?::bigint[]))
+                      AND (?='ALL' OR (?='ACTIVE' AND l.actual_return_date IS NULL)
+                        OR (?='OVERDUE' AND l.actual_return_date IS NULL AND l.planned_return_date<?)
+                        OR (?='RETURNED' AND l.actual_return_date IS NOT NULL))
+                    ORDER BY l.id DESC LIMIT ? OFFSET ?
+                    """, r -> new ru.library.dto.LoanEntry(map(r), r.getString("full_name"),
+                    r.getString("title"), r.getString("inventory_number")),
+                    ids, ids, filter.name(), filter.name(), filter.name(), today, filter.name(), limit, offset);
+        } finally { ids.free(); }
+    }
     public ru.library.dto.LibraryStatistics statistics(Connection connection, LocalDate today) throws SQLException {
         return Sql.one(connection, """
                 SELECT (SELECT count(*) FROM books WHERE NOT archived) AS books,

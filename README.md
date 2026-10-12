@@ -102,6 +102,8 @@ mvn -pl frontend javafx:run
 или psql. Сценарий показа: [docs/demo.md](docs/demo.md).
 
 Описание экранов, ограничений API и проверок: [docs/frontend.md](docs/frontend.md).
+Порядок работы, назначение разделов и сценарий защиты: [docs/user-guide.md](docs/user-guide.md).
+Запуск приложения и загрузка демонстрационных данных в Windows: [docs/local-run.md](docs/local-run.md).
 
 ```text
 mvn "-Dmaven.repo.local=E:/biblioteka/.local/m2" "-Djava.io.tmpdir=E:/biblioteka/.local/tmp" verify

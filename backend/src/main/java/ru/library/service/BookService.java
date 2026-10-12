@@ -34,6 +34,22 @@ public final class BookService {
             return books.find(c, id, false).orElseThrow(() -> new LibraryException(NOT_FOUND, "Книга не найдена."));
         });
     }
+    public List<CatalogEntry> catalog(SessionToken token, String query, boolean archived, int limit, int offset) {
+        Validation.page(limit, offset);
+        String pattern = Validation.pattern(query);
+        return database.transaction(c -> {
+            auth.require(c, token, false);
+            return books.catalog(c, pattern, archived, limit, offset);
+        });
+    }
+
+    public Book findByIsbn(SessionToken token, String isbn) {
+        String value = Validation.text(isbn, 20, "ISBN");
+        return database.transaction(c -> {
+            auth.require(c, token, false);
+            return books.byIsbn(c, value).orElseThrow(() -> new LibraryException(NOT_FOUND, "Книга с таким ISBN не найдена."));
+        });
+    }
     public Book create(SessionToken token, BookDraft draft) {
         BookDraft clean = validate(draft);
         return database.transaction(c -> {

@@ -3,6 +3,7 @@ package ru.library;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
 import ru.library.bootstrap.AdminBootstrap;
+import ru.library.bootstrap.DemoDataLoader;
 import ru.library.config.*;
 import ru.library.dto.*;
 import ru.library.exception.LibraryException;
@@ -81,6 +82,128 @@ class LibraryBackendIT {
         admin = backend.auth().login("admin", adminPassword).token();
         employeeUser = backend.users().create(admin, "employee", employeePassword, "Сотрудник", Role.USER);
         employee = backend.auth().login("employee", employeePassword).token();
+    }
+
+    @Test void registrationCreatesOnlyEmployeeAndRejectsDuplicateLogin() throws Exception {
+        String secret = UUID.randomUUID().toString();
+        User registered = backend.auth().register(" New_User ", secret, "Новый сотрудник");
+        assertEquals(Role.USER, registered.role());
+        assertTrue(registered.active());
+        var session = backend.auth().login("new_user", secret);
+        assertEquals(registered.id(), session.user().id());
+        assertEquals(FORBIDDEN, assertThrows(LibraryException.class,
+                () -> backend.users().list(session.token())).code());
+        assertEquals(CONFLICT, assertThrows(LibraryException.class,
+                () -> backend.auth().register("NEW_USER", secret, "Другой сотрудник")).code());
+        assertEquals(VALIDATION, assertThrows(LibraryException.class,
+                () -> backend.auth().register("short_password", "short", "Сотрудник")).code());
+        try (Connection c = connections.open()) {
+            String hash = Sql.one(c, "SELECT password_hash FROM users WHERE id=?", r -> r.getString(1), registered.id()).orElseThrow();
+            assertNotEquals(secret, hash);
+            assertTrue(hash.startsWith("$2a$"));
+        }
+    }
+
+    @Test void registrationCannotReplaceInitialAdministratorSetup() throws Exception {
+        long id = backend.auth().currentUser(admin).id();
+        try (Connection c = connections.open()) {
+            Sql.update(c, "UPDATE users SET active=false WHERE id=?", id);
+        }
+        assertEquals(CONFLICT, assertThrows(LibraryException.class,
+                () -> backend.auth().register("new_user", UUID.randomUUID().toString(), "Сотрудник")).code());
+    }
+
+    private void prepareDemoAtCurrentDate() throws Exception {
+        DemoDataLoader.load(connections);
+        clock = new MutableClock(Instant.now(), ZoneId.of("Europe/Moscow"));
+        backend = new Backend(connections, clock);
+        admin = backend.auth().login("admin", adminPassword).token();
+        employee = backend.auth().login("employee", employeePassword).token();
+    }
+
+    @Test void bulkReturnClosesEverySelectedLoanAndCreatesCorrectFines() throws Exception {
+        prepareDemoAtCurrentDate();
+        var active = backend.loans().entries(employee, List.of(), LoanFilter.ACTIVE, 200, 0);
+        var selected = active.subList(0, 2);
+        List<Long> ids = selected.stream().map(row -> row.loan().id()).toList();
+        long overdue = selected.stream().filter(row -> row.loan().plannedReturnDate().isBefore(LocalDate.now(clock))).count();
+        var returned = backend.loans().returnBooks(employee, ids);
+        assertEquals(2, returned.size());
+        assertTrue(returned.stream().allMatch(loan -> LocalDate.now(clock).equals(loan.actualReturnDate())));
+        assertEquals(4, backend.loans().entries(employee, List.of(), LoanFilter.ACTIVE, 200, 0).size());
+        assertEquals(2 + overdue, backend.fines().entries(employee, List.of(), false, 200, 0).size());
+        for (var row : selected) {
+            try (Connection c = connections.open()) {
+                assertEquals(0L, Sql.one(c, "SELECT count(*) FROM loans WHERE copy_id=? AND actual_return_date IS NULL",
+                        result -> result.getLong(1), row.loan().copyId()).orElseThrow());
+            }
+        }
+    }
+
+    @Test void bulkReturnRollsBackWhenAnySelectedLoanWasAlreadyReturned() throws Exception {
+        prepareDemoAtCurrentDate();
+        var active = backend.loans().entries(employee, List.of(), LoanFilter.ACTIVE, 200, 0);
+        long first = active.stream().mapToLong(row -> row.loan().id()).min().orElseThrow();
+        long returned = backend.loans().entries(employee, List.of(), LoanFilter.RETURNED, 200, 0).getFirst().loan().id();
+        assertEquals(CONFLICT, assertThrows(LibraryException.class,
+                () -> backend.loans().returnBooks(employee, List.of(first, returned))).code());
+        assertEquals(6, backend.loans().entries(employee, List.of(), LoanFilter.ACTIVE, 200, 0).size());
+        assertEquals(2, backend.fines().entries(employee, List.of(), false, 200, 0).size());
+        assertEquals(VALIDATION, assertThrows(LibraryException.class,
+                () -> backend.loans().returnBooks(employee, List.of())).code());
+        assertEquals(UNAUTHENTICATED, assertThrows(LibraryException.class,
+                () -> backend.loans().returnBooks(null, List.of(first))).code());
+    }
+
+    @Test void groupedViewsFilterReadersLoansAndFinesAndResolveBooks() throws Exception {
+        prepareDemoAtCurrentDate();
+        var all = backend.loans().entries(employee, List.of(), LoanFilter.ALL, 200, 0);
+        assertEquals(8, all.size());
+        assertTrue(all.stream().allMatch(row -> !row.bookTitle().isBlank() && !row.inventoryNumber().isBlank() && !row.readerName().isBlank()));
+        assertEquals(6, backend.loans().entries(employee, List.of(), LoanFilter.ACTIVE, 200, 0).size());
+        assertEquals(3, backend.loans().entries(employee, List.of(), LoanFilter.OVERDUE, 200, 0).size());
+        assertEquals(2, backend.loans().entries(employee, List.of(), LoanFilter.RETURNED, 200, 0).size());
+        List<Long> chosen = all.stream().map(row -> row.loan().readerId()).distinct().limit(2).toList();
+        var selected = backend.loans().entries(employee, chosen, LoanFilter.ALL, 200, 0);
+        assertEquals(2, selected.size());
+        assertTrue(selected.stream().allMatch(row -> chosen.contains(row.loan().readerId())));
+        assertEquals(all.get(1).loan().id(), backend.loans().entries(employee, List.of(), LoanFilter.ALL, 1, 1).getFirst().loan().id());
+        var fines = backend.fines().entries(employee, List.of(), false, 200, 0);
+        assertEquals(2, fines.size());
+        assertEquals(1, backend.fines().entries(employee, List.of(), true, 200, 0).size());
+        assertEquals(1, backend.fines().entries(employee, List.of(fines.getFirst().readerId()), false, 200, 0).size());
+        var catalog = backend.books().catalog(employee, "", false, 200, 0);
+        var book = catalog.getFirst().book();
+        assertEquals(book.id(), backend.books().findByIsbn(employee, book.isbn()).id());
+        backend.books().archive(admin, book.id(), true);
+        assertEquals(1, backend.books().catalog(employee, "", true, 200, 0).size());
+        assertEquals(15, backend.books().catalog(employee, "", false, 200, 0).size());
+        assertEquals(VALIDATION, assertThrows(LibraryException.class, () ->
+                backend.loans().entries(employee, List.of(-1L), LoanFilter.ALL, 12, 0)).code());
+        assertEquals(UNAUTHENTICATED, assertThrows(LibraryException.class, () ->
+                backend.fines().entries(null, List.of(), false, 12, 0)).code());
+    }
+
+    @Test void systemStatusRequiresAdministratorAndReportsCurrentDatabase() {
+        var status = backend.system().status(admin);
+        assertEquals(14, status.tables());
+        assertEquals(2, status.users());
+        assertEquals(2, status.activeUsers());
+        assertFalse(status.databaseVersion().isBlank());
+        assertEquals(clock.instant(), status.checkedAt());
+        assertEquals(FORBIDDEN, assertThrows(LibraryException.class, () -> backend.system().status(employee)).code());
+    }
+
+    @Test void demoDataCanBeLoadedTwice() throws Exception {
+        DemoDataLoader.load(connections);
+        DemoDataLoader.load(connections);
+        try (Connection c = connections.open()) {
+            assertEquals(16L, Sql.one(c, "SELECT count(*) FROM books", r -> r.getLong(1)).orElseThrow());
+            assertEquals(46L, Sql.one(c, "SELECT count(*) FROM book_copies", r -> r.getLong(1)).orElseThrow());
+            assertEquals(8L, Sql.one(c, "SELECT count(*) FROM readers", r -> r.getLong(1)).orElseThrow());
+            assertEquals(8L, Sql.one(c, "SELECT count(*) FROM loans", r -> r.getLong(1)).orElseThrow());
+            assertEquals(2L, Sql.one(c, "SELECT count(*) FROM fines", r -> r.getLong(1)).orElseThrow());
+        }
     }
 
     @Test void schemaHasExactlyFourteenTablesAndReferencesCanBeAppliedAgain() throws Exception {

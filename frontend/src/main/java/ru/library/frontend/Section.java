@@ -7,7 +7,8 @@ enum Section {
     FINES("Штрафы", Icon.FINES),
     DICTIONARIES("Справочники", Icon.FOLDER),
     USERS("Сотрудники", Icon.PEOPLE),
-    SETTINGS("Настройки", Icon.SETTINGS);
+    SETTINGS("Настройки", Icon.SETTINGS),
+    SYSTEM("Состояние системы", Icon.SETTINGS);
 
     final String title;
     final Icon icon;

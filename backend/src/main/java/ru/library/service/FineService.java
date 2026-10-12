@@ -35,4 +35,13 @@ public final class FineService {
             return null;
         });
     }
+    public List<ru.library.dto.FineEntry> entries(SessionToken token, List<Long> readerIds, boolean unpaidOnly,
+                                                int limit, int offset) {
+        List<Long> ids = Validation.ids(readerIds);
+        Validation.page(limit, offset);
+        return database.transaction(c -> {
+            auth.require(c, token, false);
+            return fines.entries(c, ids, unpaidOnly, limit, offset);
+        });
+    }
 }

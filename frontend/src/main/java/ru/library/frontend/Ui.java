@@ -13,6 +13,8 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.CheckBox;
+import javafx.collections.ObservableList;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
@@ -42,6 +44,7 @@ import java.util.function.Supplier;
 
 final class Ui {
     private static final Object REFRESH_ACTION = new Object();
+    private static final Object CHECKED_ROWS = new Object();
 
     private Ui() {}
 
@@ -51,6 +54,7 @@ final class Ui {
 
     static void refresh(Node root) {
         if (root.getProperties().get(REFRESH_ACTION) instanceof Runnable action) action.run();
+        else if (root instanceof ScrollPane scroll) refresh(scroll.getContent());
     }
 
     static String text(Object value) {
@@ -73,12 +77,18 @@ final class Ui {
     static Label label(String text, String style) {
         Label l = new Label(text);
         l.getStyleClass().add(style);
+        if ("form-note".equals(style)) {
+            l.setWrapText(true);
+            l.setMaxWidth(Double.MAX_VALUE);
+            l.setMinHeight(Region.USE_PREF_SIZE);
+        }
         return l;
     }
 
     static Button button(String text, String style, Runnable action) {
         Button b = new Button(text);
         b.getStyleClass().add(style);
+        b.setMinWidth(Region.USE_PREF_SIZE);
         b.setOnAction(e -> action.run());
         return b;
     }
@@ -99,10 +109,47 @@ final class Ui {
     static VBox page(String title, String description, Node action) {
         VBox heading = new VBox(6, label(title, "page-title"), label(description, "muted"));
         HBox top = row(heading, spacer());
+        heading.setMinWidth(0);
+        ((Label) heading.getChildren().getFirst()).setWrapText(true);
+        ((Label) heading.getChildren().getLast()).setWrapText(true);
+        ((Label) heading.getChildren().getLast()).setMaxWidth(Double.MAX_VALUE);
+        ((Label) heading.getChildren().getLast()).setMinHeight(Region.USE_PREF_SIZE);
+        HBox.setHgrow(heading, Priority.ALWAYS);
         if (action != null) top.getChildren().add(action);
+        top.getChildren().add(button("О странице", "secondary", () -> {
+            Window owner = top.getScene() == null ? null : top.getScene().getWindow();
+            Dialog<Void> dialog = new Dialog<>();
+            dialog.setTitle("Как пользоваться: " + title);
+            style(dialog, owner);
+            dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
+            ((Button) dialog.getDialogPane().lookupButton(ButtonType.CLOSE)).setText("Закрыть");
+            Label help = label(PageHelp.text(title), "form-note");
+            help.setWrapText(true);
+            help.setMaxWidth(Double.MAX_VALUE);
+            ScrollPane scroll = new ScrollPane(help);
+            scroll.setFitToWidth(true);
+            scroll.setPrefViewportWidth(550);
+            scroll.setPrefViewportHeight(360);
+            dialog.getDialogPane().setContent(scroll);
+            dialog.show();
+        }));
         VBox page = new VBox(24, top);
         page.getStyleClass().add("page");
         return page;
+    }
+
+    static String recordCount(int count) {
+        int lastTwo = count % 100, last = count % 10;
+        String word = lastTwo >= 11 && lastTwo <= 14 ? "записей"
+                : last == 1 ? "запись" : last >= 2 && last <= 4 ? "записи" : "записей";
+        return count + " " + word;
+    }
+
+    static ScrollPane scrollable(Node node) {
+        ScrollPane scroll = new ScrollPane(node);
+        scroll.setFitToWidth(true);
+        scroll.setFitToHeight(true);
+        return scroll;
     }
 
     static TextField input(String prompt) {
@@ -114,7 +161,7 @@ final class Ui {
 
     static <T> TableView<T> table() {
         TableView<T> table = new TableView<>();
-        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
+        table.setColumnResizePolicy(TableView.UNCONSTRAINED_RESIZE_POLICY);
         table.setPlaceholder(label("Здесь пока нет записей", "muted"));
         table.setFixedCellSize(66);
         VBox.setVgrow(table, Priority.ALWAYS);
@@ -196,17 +243,19 @@ final class Ui {
                         title,
                         style,
                         () -> {
-                            T value = table.getSelectionModel().getSelectedItem();
+                            T value = singleSelected(table);
                             if (value != null && enabled.test(value)) action.accept(value);
                         });
         b.disableProperty()
                 .bind(
                         Bindings.createBooleanBinding(
                                 () -> {
-                                    T value = table.getSelectionModel().getSelectedItem();
+                                    T value = singleSelected(table);
                                     return value == null || !enabled.test(value);
                                 },
-                                table.getSelectionModel().selectedItemProperty()));
+                                table.getSelectionModel().selectedItemProperty(), checkedItems(table)));
+        if (table.getProperties().containsKey(CHECKED_ROWS))
+            b.setTooltip(new Tooltip("Для этого действия отметьте ровно одного читателя"));
         return b;
     }
 
@@ -224,22 +273,26 @@ final class Ui {
         choice.setCellFactory(
                 column ->
                         new TableCell<>() {
-                            final Region dot = new Region();
-                            final StackPane marker = new StackPane(dot);
+                            final CheckBox marker = new CheckBox();
 
                             {
-                                dot.getStyleClass().add("selection-dot");
-                                marker.getStyleClass().add("selection-marker");
-                                marker.setMaxSize(14, 14);
-                                marker.setMinSize(14, 14);
                                 setAlignment(Pos.CENTER);
                                 getStyleClass().add("choice-cell");
+                                marker.setAccessibleText("Выбрать строку");
+                                marker.setOnAction(e -> {
+                                    if (getItem() == null) return;
+                                    if (marker.isSelected()) table.getSelectionModel().select(getItem());
+                                    else table.getSelectionModel().clearSelection(getIndex());
+                                });
+                                table.getSelectionModel().selectedItemProperty().addListener((o, a, b) ->
+                                        marker.setSelected(getItem() != null && getItem().equals(b)));
                             }
 
                             @Override
                             protected void updateItem(T item, boolean empty) {
                                 super.updateItem(item, empty);
                                 setGraphic(empty ? null : marker);
+                                marker.setSelected(!empty && item != null && item.equals(table.getSelectionModel().getSelectedItem()));
                                 setAccessibleText(empty ? "" : "Выбор строки");
                             }
                         });
@@ -254,13 +307,12 @@ final class Ui {
         Label note = label(prompt, "muted");
         note.setMinWidth(0);
         note.setMaxWidth(320);
-        table.getSelectionModel()
-                .selectedItemProperty()
-                .addListener(
-                        (o, before, item) -> {
-                            note.setText(item == null ? prompt : "Выбрано: " + name.apply(item));
-                            note.setTooltip(new Tooltip(note.getText()));
-                        });
+        checkedItems(table).addListener((javafx.collections.ListChangeListener<T>) changes -> {
+            var items = checkedItems(table);
+            note.setText(items.isEmpty() ? prompt : items.size() == 1
+                    ? "Выбрано: " + name.apply(items.getFirst()) : "Выбрано записей: " + items.size());
+            note.setTooltip(new Tooltip(note.getText()));
+        });
         return note;
     }
 
@@ -303,6 +355,97 @@ final class Ui {
         dialog.getDialogPane().getButtonTypes().add(ButtonType.CLOSE);
         ((Button) dialog.getDialogPane().lookupButton(ButtonType.CLOSE)).setText("Закрыть");
         return dialog;
+    }
+
+    static void information(Window owner, String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION, message, ButtonType.OK);
+        style(alert, owner);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.show();
+    }
+
+    private static final class CheckedRows<T> {
+        final ObservableList<T> items = FXCollections.observableArrayList();
+        final java.util.Map<Long, T> selected = new java.util.LinkedHashMap<>();
+        final Function<T, Long> key;
+        CheckedRows(Function<T, Long> key) { this.key = key; }
+        void toggle(T item, boolean checked) {
+            if (checked) selected.put(key.apply(item), item);
+            else selected.remove(key.apply(item));
+            items.setAll(selected.values());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static <T> ObservableList<T> checkedItems(TableView<T> table) {
+        if (table.getProperties().get(CHECKED_ROWS) instanceof CheckedRows<?> checked)
+            return ((CheckedRows<T>) checked).items;
+        return table.getSelectionModel().getSelectedItems();
+    }
+
+    static <T> T singleSelected(TableView<T> table) {
+        var items = checkedItems(table);
+        return items.size() == 1 ? items.getFirst() : null;
+    }
+
+    static void clearChecked(TableView<?> table) {
+        if (table.getProperties().get(CHECKED_ROWS) instanceof CheckedRows<?> checked) {
+            checked.selected.clear();
+            checked.items.clear();
+        }
+        table.getSelectionModel().clearSelection();
+    }
+
+    static <T> void multiSelectable(TableView<T> table, Function<T, Long> key) {
+        if (table.getProperties().containsKey(CHECKED_ROWS)) return;
+        table.getStyleClass().add("selectable-table");
+        CheckedRows<T> checked = new CheckedRows<>(key);
+        table.getProperties().put(CHECKED_ROWS, checked);
+        table.setRowFactory(view -> {
+            javafx.scene.control.TableRow<T> row = new javafx.scene.control.TableRow<>();
+            row.setOnMouseClicked(event -> {
+                if (row.isEmpty()) return;
+                for (Node target = event.getTarget() instanceof Node node ? node : null; target != null; target = target.getParent())
+                    if (target instanceof CheckBox) return;
+                checked.toggle(row.getItem(), !checked.selected.containsKey(key.apply(row.getItem())));
+            });
+            return row;
+        });
+        TableColumn<T, T> choice = new TableColumn<>("");
+        choice.setMinWidth(44); choice.setMaxWidth(44); choice.setPrefWidth(44);
+        choice.setSortable(false); choice.setReorderable(false); choice.setResizable(false);
+        choice.setCellValueFactory(cell -> new ReadOnlyObjectWrapper<>(cell.getValue()));
+        choice.setCellFactory(column -> new TableCell<>() {
+            final CheckBox box = new CheckBox();
+            {
+                setAlignment(Pos.CENTER);
+                box.setAccessibleText("Добавить запись к выбору");
+                box.setOnAction(e -> { if (getItem() != null) checked.toggle(getItem(), box.isSelected()); });
+                checked.items.addListener((javafx.collections.ListChangeListener<T>) changes -> updateCheck());
+            }
+            private void updateCheck() {
+                box.setSelected(getItem() != null && checked.selected.containsKey(key.apply(getItem())));
+            }
+            @Override protected void updateItem(T item, boolean empty) {
+                super.updateItem(item, empty);
+                setGraphic(empty ? null : box);
+                updateCheck();
+            }
+        });
+        table.getColumns().addFirst(choice);
+    }
+
+    static <T> Button groupButton(String title, String style, TableView<T> table, Consumer<List<T>> action) {
+        return groupButton(title, style, table, items -> true, action);
+    }
+
+    static <T> Button groupButton(String title, String style, TableView<T> table,
+                                 Predicate<List<T>> enabled, Consumer<List<T>> action) {
+        Button button = button(title, style, () -> action.accept(List.copyOf(checkedItems(table))));
+        button.disableProperty().bind(Bindings.createBooleanBinding(() ->
+                checkedItems(table).isEmpty() || !enabled.test(List.copyOf(checkedItems(table))), checkedItems(table)));
+        return button;
     }
 
     static void error(Window owner, String message) {

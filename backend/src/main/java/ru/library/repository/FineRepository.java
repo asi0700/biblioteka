@@ -28,4 +28,20 @@ public final class FineRepository {
     public void pay(Connection connection, long id, long userId) throws SQLException {
         Sql.update(connection, "UPDATE fines SET paid_at=CURRENT_TIMESTAMP,paid_by=? WHERE id=? AND paid_at IS NULL", userId, id);
     }
+    public List<ru.library.dto.FineEntry> entries(Connection c, List<Long> readerIds, boolean unpaidOnly,
+                                                int limit, int offset) throws SQLException {
+        Array ids = c.createArrayOf("bigint", readerIds.toArray());
+        try {
+            return Sql.list(c, """
+                    SELECT f.*, l.reader_id, r.full_name, b.title, copy.inventory_number
+                    FROM fines f JOIN loans l ON l.id=f.loan_id JOIN readers r ON r.id=l.reader_id
+                    JOIN book_copies copy ON copy.id=l.copy_id JOIN books b ON b.id=copy.book_id
+                    WHERE (cardinality(?::bigint[])=0 OR l.reader_id=ANY(?::bigint[]))
+                      AND (NOT ? OR f.paid_at IS NULL)
+                    ORDER BY f.id DESC LIMIT ? OFFSET ?
+                    """, r -> new ru.library.dto.FineEntry(map(r), r.getLong("reader_id"),
+                    r.getString("full_name"), r.getString("title"), r.getString("inventory_number")),
+                    ids, ids, unpaidOnly, limit, offset);
+        } finally { ids.free(); }
+    }
 }

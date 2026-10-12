@@ -37,6 +37,10 @@ public final class BookRepository {
     }
 
     public List<CatalogEntry> catalog(Connection connection, String pattern, int limit, int offset) throws SQLException {
+        return catalog(connection, pattern, false, limit, offset);
+    }
+
+    public List<CatalogEntry> catalog(Connection connection, String pattern, boolean archived, int limit, int offset) throws SQLException {
         return Sql.list(connection, """
                 SELECT b.*,
                   ARRAY(SELECT ba.author_id FROM book_authors ba WHERE ba.book_id=b.id ORDER BY ba.author_id) AS author_ids,
@@ -45,9 +49,13 @@ public final class BookRepository {
                   (SELECT count(*) FROM book_copies c WHERE c.book_id=b.id AND c.condition='usable'
                     AND NOT EXISTS (SELECT 1 FROM loans l WHERE l.copy_id=c.id AND l.actual_return_date IS NULL)) AS available
                 FROM books b
-                """ + SEARCH,
+                """ + SEARCH.replace("NOT b.archived", "b.archived=?"),
                 result -> new CatalogEntry(map(result), result.getString("authors"), result.getLong("available")),
-                pattern, pattern, pattern, limit, offset);
+                archived, pattern, pattern, pattern, limit, offset);
+    }
+
+    public Optional<Book> byIsbn(Connection connection, String isbn) throws SQLException {
+        return Sql.one(connection, SELECT + "WHERE replace(b.isbn,'-','')=?", this::map, isbn.replace("-", ""));
     }
 
     public long create(Connection connection, BookDraft draft) throws SQLException {

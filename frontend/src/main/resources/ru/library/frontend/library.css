@@ -75,5 +75,9 @@
 .list-cell { -fx-background-color: #ffffff; -fx-text-fill: #232824; -fx-padding: 8 10; }
 .list-cell:filled:selected { -fx-background-color: #e8eee8; -fx-text-fill: #232824; }
 .login-root { -fx-background-color: #f6f7f5; }
+.login-scroll, .login-scroll > .viewport, .sidebar-scroll, .sidebar-scroll > .viewport { -fx-background-color: #f6f7f5; }
+.check-box .box { -fx-background-color: #ffffff; -fx-border-color: #a8b0a5; -fx-border-radius: 2; }
+.check-box:selected .box { -fx-border-color: #365c45; }
+.check-box:selected .mark { -fx-background-color: #365c45; }
 .login-brand { -fx-text-fill: #365c45; -fx-font-size: 18px; -fx-font-weight: bold; -fx-padding: 0 0 36 0; }
 .settings-section { -fx-padding: 22 0; -fx-border-color: #e4e7e2 transparent transparent transparent; }

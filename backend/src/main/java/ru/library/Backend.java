@@ -15,6 +15,7 @@ public final class Backend {
     private final DictionaryService dictionaries;
     private final SettingsService settings;
     private final FineService fines;
+    private final SystemService system;
 
     public Backend(ConnectionFactory connections, Clock clock) {
         java.util.Objects.requireNonNull(clock);
@@ -34,6 +35,7 @@ public final class Backend {
         dictionaries = new DictionaryService(database, auth, new DictionaryRepository());
         settings = new SettingsService(database, auth, settingsRepository);
         fines = new FineService(database, auth, fineRepository, loanRepository, readerRepository);
+        system = new SystemService(database, auth, clock);
     }
     public static Backend fromEnvironment() {
         String zone = System.getenv("LIBRARY_ZONE");
@@ -48,4 +50,5 @@ public final class Backend {
     public DictionaryService dictionaries() { return dictionaries; }
     public SettingsService settings() { return settings; }
     public FineService fines() { return fines; }
+    public SystemService system() { return system; }
 }
